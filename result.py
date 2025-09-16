@@ -111,7 +111,7 @@ def parse_property(url):
         "building_notes": None,
         "building_style": None,
         "autolock": None,
-        "credit_card": None,
+        "credit_card": "Y",
         "concierge": None,
         "delivery_box": None,
         "elevator": None,
@@ -123,6 +123,10 @@ def parse_property(url):
         "room_type": None,
         "size": None,
         "unit_no": None,
+        "unit_description_en": None,
+        "unit_description_ja": None,
+        "unit_description_zh_CN": None,
+        "unit_description_zh_TW": None,
         "ad_type": None,
         "available_from": None,
         "property_description_en": None,
@@ -146,7 +150,7 @@ def parse_property(url):
         "months_guarantor": None,
         "numeric_guarantor": None,
         "months_agency": None,
-        "numeric_agency": None,
+        "numeric_agency": "1.1 Monthly rent",
         "months_renewal": None,
         "numeric_renewal": None,
         "months_deposit_amortization": None,
@@ -176,12 +180,12 @@ def parse_property(url):
         "facing_southwest": None,
         "facing_west": None,
         "facing_northwest": None,
-        "aircon": None,
-        "aircon_heater": None,
+        "aircon":"Y",
+        "aircon_heater": "Y",
         "all_electric": None,
         "auto_fill_bath": None,
         "balcony": None,
-        "bath": None,
+        "bath": "Y",
         "bath_water_heater": None,
         "blinds": None,
         "bs": None,
@@ -193,7 +197,7 @@ def parse_property(url):
         "drapes": None,
         "female_only": None,
         "fireplace": None,
-        "flooring": None,
+        "flooring": "Y",
         "full_kitchen": None,
         "furnished": None,
         "gas": None,
@@ -205,31 +209,31 @@ def parse_property(url):
         "loft": None,
         "microwave": None,
         "oven": None,
-        "phoneline": None,
+        "phoneline": "Y",
         "range": None,
         "refrigerator": None,
         "refrigerator_freezer": None,
         "roof_balcony": None,
         "separate_toilet": None,
-        "shower": None,
+        "shower": "Y",
         "soho": None,
         "storage": None,
         "student_friendly": None,
-        "system_kitchen": None,
+        "system_kitchen": "Y",
         "tatami": None,
         "underfloor_heating": None,
-        "unit_bath": None,
+        "unit_bath":"Y",
         "utensils_cutlery": None,
         "veranda": None,
         "washer_dryer": None,
         "washing_machine": None,
         "washlet": None,
-        "western_toilet": None,
+        "western_toilet": "Y",
         "yard": None,
         "youtube": None,
         "vr_link": None,
         "floorplan": None,
-        "numeric_guarantor_max": None,
+        "numeric_guarantor_max": "100% Total monthly fee",
         "discount": None,
         "create_date": datetime.now().isoformat(),
     }
@@ -357,6 +361,47 @@ def parse_property(url):
         if fees:
             total = sum(int(f.replace(",", "")) for f in fees)
             data["other_initial_fees"] = f"{total:,}円"
+    
+    # --- Unit description (備考) ---
+    unit_desc = get_table_thtd_value(soup, "備考")
+    if unit_desc:
+        data["unit_description_ja"] = unit_desc
+    else:
+        data["unit_description_ja"] = ""
+    # Pets (ペット可区分)
+    pets_text = get_table_thtd_value(soup, "ペット可区分")
+    data["pets"] = "N"
+    unit_desc_parts = []
+
+    if pets_text:
+        th_pets = soup.find("th", string=re.compile("ペット可区分"))
+        if th_pets:
+            pets_td = th_pets.find_next_sibling("td")
+            if pets_td:
+                for li in pets_td.find_all("li"):
+                    text = li.get_text(strip=True)
+                    # Nếu chỉ có "可" hoặc "不可" thì bỏ qua
+                    if text in ["可", "不可", "-", "有り"]:
+                        continue
+                    unit_desc_parts.append(text)
+
+        # Nếu trong td có "可" thì bật pets=Y
+        if "可" in pets_text:
+            data["pets"] = "Y"
+
+    # Ghép thông tin pets vào unit_description
+    if unit_desc_parts:
+        extra_desc = " / ".join(unit_desc_parts)
+        if data.get("unit_description_ja"):
+            data["unit_description_ja"] += " / " + extra_desc
+        else:
+            data["unit_description_ja"] = extra_desc
+            # data["unit_description_en"] = translate_text(data["unit_description_ja"], "en")
+            # data["unit_description_zh_CN"] = translate_text(data["unit_description_ja"], "zh-CN")
+            # data["unit_description_zh_TW"] = translate_text(data["unit_description_ja"], "zh-TW")
+
+
+
     # Facing
     facing_text = get_table_thtd_value(soup, ["向き", "方位"])
     facing_map = {
@@ -377,6 +422,112 @@ def parse_property(url):
             if facing_text.strip() == k:
                 data[facing_map[k]] = "Y"
                 break
+    
+        # --- Facilities / Conditions (設備・条件) ---
+    eq_th = soup.find("th", string=re.compile("設備・条件"))
+    if eq_th:
+        eq_td = eq_th.find_next_sibling("td")
+        if eq_td:
+            eq_text = eq_td.get_text("、", strip=True)
+
+            # Map keyword -> field
+            checkbox_map = {
+                # Building facilities
+                "オートロック": "autolock",
+                "コンシェルジュ": "concierge",
+                "宅配BOX": "delivery_box",
+                "エレベーター": "elevator",
+                "ジム": "gym",
+                "新築": "newly_built",
+                "プール": "swimming_pool",
+                "UR": "ur",
+                "駐車場": "parking",
+                "駐輪場": "bicycle_parking",
+                "バイク置場": "motorcycle_parking",
+
+                # Room equipment
+                "オール電化": "all_electric",
+                "自動お湯張り": "auto_fill_bath",
+                "バルコニー": "balcony",
+                "給湯": "bath_water_heater",
+                "ブラインド": "blinds",
+                "BS": "bs",
+                "CS": "cable",
+                "カーペット": "carpet",
+                "清掃サービス": "cleaning_service",
+                "カウンターキッチン": "counter_kitchen",
+                "食器洗浄機": "dishwasher",
+                "カーテン": "drapes",
+                "女性限定": "female_only",
+                "暖炉": "fireplace",
+                "キッチン": "full_kitchen",
+                "家具付き": "furnished",
+                "ガス": "gas",
+                "IHコンロ": "induction_cooker",
+                "インターネット": "internet_broadband",
+                "Wi-Fi": "internet_wifi",
+                "和式トイレ": "japanese_toilet",
+                "リネン": "linen",
+                "ロフト": "loft",
+                "電子レンジ": "microwave",
+                "オーブン": "oven",
+                "レンジ": "range",
+                "冷蔵庫": "refrigerator",
+                "冷凍冷蔵庫": "refrigerator_freezer",
+                "ルーフバルコニー": "roof_balcony",
+                "セパレートトイレ": "separate_toilet",
+                "SOHO": "soho",
+                "収納": "storage",
+                "学生歓迎": "student_friendly",
+                "畳": "tatami",
+                "床暖房": "underfloor_heating",
+                "調理器具": "utensils_cutlery",
+                "ベランダ": "veranda",
+                "乾燥機付洗濯機": "washer_dryer",
+                "洗濯機": "washing_machine",
+                "ウォシュレット": "washlet",
+                "庭": "yard",
+
+                # Lease / conditions
+                "保証人不要": "no_guarantor",
+                "家賃交渉可": "rent_negotiable",
+                "再契約時賃料変更": "renewal_new_rent",
+                "短期可": "short_term_ok",
+
+                # Special features
+                "楽器相談": "music_ok",
+                "電子契約可": "digital_contract",
+                "事務所利用": "office_use",
+                "ルームシェア": "roomshare",
+            }
+
+            # Default: N nếu chưa set
+            for field in checkbox_map.values():
+                if data.get(field) is None:
+                    data[field] = "N"
+
+            for key, field in checkbox_map.items():
+                if key in eq_text:
+                    data[field] = "Y"
+
+                    # Parking cost
+                    if field == "parking":
+                        m = re.search(r"駐車場.*?([\d,]+)円", eq_text)
+                        if m:
+                            data["parking_cost"] = m.group(1) + "円"
+
+                    # Motorcycle cost
+                    if field == "motorcycle_parking":
+                        m = re.search(r"バイク置場.*?([\d,]+)円", eq_text)
+                        if m:
+                            data["motorcycle_parking_cost"] = m.group(1) + "円"
+
+                    # Bicycle parking cost
+                    if field == "bicycle_parking":
+                        m = re.search(r"自転車置場.*?([\d,]+)円", eq_text)
+                        if m:
+                            data["bicycle_parking_cost"] = m.group(1) + "円"
+
 
     # Floorplan image
     floor_img = soup.find("img", alt=re.compile("間取り"))
@@ -411,10 +562,15 @@ def parse_property(url):
 
 if __name__ == "__main__":
     import argparse
+    import json
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", required=True)
     args = parser.parse_args()
-
     result = parse_property(args.url)
+
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    with open("result.json", "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    print("✅ Đã lưu vào result.json")
+
