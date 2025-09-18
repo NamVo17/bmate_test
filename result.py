@@ -355,12 +355,23 @@ def parse_property(url):
             data["available_from"] = avail_text
 
     # Other initial fees (退去時費用)
-    other_fees_text = get_table_thtd_value(soup, "退去時費用")
-    if other_fees_text:
-        fees = re.findall(r"([\d,]+)円", other_fees_text)
-        if fees:
-            total = sum(int(f.replace(",", "")) for f in fees)
-            data["other_initial_fees"] = f"{total:,}円"
+    other_fees = soup.find("th", string=re.compile("退去時費用"))
+    if other_fees:
+        other_fees_td = other_fees.find_next_sibling("td")
+        if other_fees_td:
+            other_fees_text = other_fees_td.get_text(" ", strip=True)
+
+            # Lấy tổng phí (nếu có số tiền)
+            fees = re.findall(r"([\d,]+)円", other_fees_text)
+            if fees:
+                total = sum(int(f.replace(",", "")) for f in fees)
+                data["other_initial_fees"] = f"{total:,}円"
+
+            # Lấy ghi chú trong <span>
+            span = other_fees_td.find("span")
+            if span:
+                data["other_subscription_fees"] = span.get_text(strip=True)
+
     
     # --- Unit description (備考) ---
     unit_desc = get_table_thtd_value(soup, "備考")
